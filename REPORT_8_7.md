@@ -1,54 +1,92 @@
-# Báo cáo thực hành 8.7: An toàn và Bảo mật trong dự án phần mềm mã nguồn mở
+# BÁO CÁO THỰC HÀNH 8.7
+## An toàn và Bảo mật trong dự án phần mềm mã nguồn mở
 
-**Sinh viên thực hiện:** NGUYỄN NHƯ HỒNG HẠNH  
-**Repository:** https://github.com/hanhnguyen230505-code/oss-security-practice  
-
----
-
-## 1. Phân tích Security Advisory của một dự án OSS trên GitHub
-
-- **Tên dự án:** pallets/flask
-- **Mã CVE:** CVE-2023-30861
-- **Thời điểm công bố:** Tháng 05/2023
-- **Mô tả lỗ hổng và phạm vi ảnh hưởng:**
-  - Lỗ hổng rò rỉ cookie session khi ứng dụng hoạt động phía sau các reverse caching proxy (như Nginx, Varnish, Apache Traffic Server, CDN). Khi endpoint trả về header `Set-Cookie`, các proxy lưu đệm phản hồi này và phát tán giá trị cookie của phiên hiện tại cho các người dùng khác.
-  - Các phiên bản bị ảnh hưởng gồm toàn bộ nhánh Flask `<= 2.2.4` và `<= 2.3.1`.
-- **Mức độ nghiêm trọng và rủi ro:**
-  - Điểm số: CVSS 7.5 (Mức High).
-  - Rủi ro trực tiếp: Cho phép kẻ tấn công thực hiện Session Hijacking, đánh cắp danh tính hoặc chiếm quyền kiểm soát tài khoản người dùng khác trên hệ thống mà không cần mật khẩu.
-- **Biện pháp xử lý của dự án:**
-  - Dự án bổ sung chỉ thị `Vary: Cookie` vào các phản hồi có session bị thay đổi nhằm ngăn cản bộ nhớ đệm proxy lưu trữ nhầm.
-  - Phát hành bản vá khắc phục trên các bản cập nhật Flask 2.2.5 và Flask 2.3.2.
+| Thông tin | Chi tiết |
+|-----------|----------|
+| Sinh viên thực hiện | Nguyễn Như Hồng Hạnh |
+| Repository | https://github.com/hanhnguyen230505-code/oss-security-practice |
 
 ---
 
-## 2. Đề xuất quy trình xử lý Security Issue cho dự án giả định
+## Phần 1. Nghiên cứu Security Advisory: lỗ hổng CVE-2023-30861 của Flask
 
-Quy trình được thiết kế cho vai trò Maintainer quản lý một ứng dụng/thư viện OSS:
+### 1.1. Thông tin chung
 
-1. **Kênh tiếp nhận (Ingestion):**
-   - Kích hoạt tính năng Private Vulnerability Reporting trên GitHub để nhận thông báo ẩn danh và bảo mật.
-   - Công bố file `SECURITY.md` ở thư mục gốc quy định rõ đầu mối liên hệ thay vì dùng Issue thông thường.
-2. **Xác minh và Đánh giá (Triage & Verification):**
-   - Phản hồi xác nhận tiếp nhận thông tin trong vòng 24–48 giờ.
-   - Tạo môi trường sandbox cô lập để tái hiện mã độc/lỗi (PoC), phân tích độ lan rộng và gán chỉ số CVSS.
-3. **Vá lỗi và Thử nghiệm kín (Remediation & Testing):**
-   - Mở một Temporary Private Fork từ GitHub Security Advisory để thảo luận và viết mã vá bí mật cùng người báo cáo.
-   - Thiết lập bài kiểm thử tự động (Unit Test / Regression Test) nhằm xác nhận bản vá không phá vỡ logic cũ.
-4. **Công bố có trách nhiệm (Responsible Disclosure):**
-   - Yêu cầu cấp mã CVE định danh thông qua GitHub Advisory.
-   - Thống nhất mốc thời gian công bố (thường sau 30 đến 90 ngày kể từ khi ghi nhận).
-   - Phát hành đồng loạt mã nguồn mới (Release tag), đính kèm hướng dẫn cập nhật và ghi nhận đóng góp của nhà nghiên cứu bảo mật (Credit).
+| Hạng mục | Nội dung |
+|----------|----------|
+| Dự án | pallets/flask (framework web Python) |
+| Mã định danh | CVE-2023-30861 |
+| Công bố | Tháng 05/2023 |
+| Điểm CVSS | 7.5 – mức High |
+| Phiên bản bị ảnh hưởng | Flask 2.2.x đến 2.2.4 và Flask 2.3.x đến 2.3.1 |
+| Phiên bản đã vá | Flask 2.2.5 và 2.3.2 |
+
+### 1.2. Bản chất của lỗ hổng
+
+Khi một ứng dụng Flask được đặt sau reverse proxy có bộ nhớ đệm (Nginx, Varnish, Apache Traffic Server hoặc CDN), phản hồi có chứa header `Set-Cookie` có thể bị proxy lưu lại. Nguyên nhân là phản hồi thiếu chỉ thị `Vary: Cookie`, khiến proxy không phân biệt được các người dùng khác nhau và trả cùng một bản phản hồi (kèm cookie session) cho nhiều người.
+
+Hệ quả là cookie session của người dùng A có thể được gửi tới người dùng B.
+
+### 1.3. Mức độ rủi ro
+
+- Kẻ tấn công có thể chiếm phiên đăng nhập (Session Hijacking) của người khác mà không cần biết mật khẩu.
+- Có thể dẫn tới giả mạo danh tính và chiếm quyền tài khoản.
+- Lỗi chỉ xuất hiện trong một cấu hình triển khai cụ thể (có proxy cache), nên khó phát hiện nếu chỉ kiểm thử ở môi trường phát triển.
+
+### 1.4. Cách dự án khắc phục
+
+1. Thêm header `Vary: Cookie` vào các phản hồi khi session được truy cập hoặc bị thay đổi, để proxy không dùng chung bản lưu đệm giữa các người dùng.
+2. Phát hành bản vá trên hai nhánh đang được hỗ trợ là 2.2.5 và 2.3.2.
+3. Công bố advisory để người dùng biết cần nâng cấp.
 
 ---
 
-## 3. Bài học bảo mật rút ra từ dự án phần mềm mã nguồn mở
+## Phần 2. Quy trình xử lý Security Issue đề xuất
 
-- **Vấn đề bảo mật thường gặp:**
-  - Chuỗi cung ứng (Software Supply Chain): Sử dụng các gói thư viện bên ngoài (dependencies) có sẵn lỗ hổng hoặc bị tấn công Dependency Confusion / Typosquatting.
-  - Lộ lọt thông tin nhạy cảm: Lập trình viên vô tình commit các chuỗi kết nối cơ sở dữ liệu, API Token hoặc Secret Key lên lịch sử commit công khai.
-  - Báo cáo lỗi thiếu an toàn: Người dùng mở issue công khai để hỏi về một lỗi bảo mật nghiêm trọng trước khi có bản vá khiến lỗ hổng biến thành zero-day.
-- **Biện pháp phòng ngừa cần áp dụng:**
-  - Sử dụng công cụ quét phụ thuộc tự động như GitHub Dependabot hoặc Snyk.
-  - Bật tính năng Secret Scanning và push protection để chặn commit chứa thông tin xác thực.
-  - Tích hợp công cụ phân tích tĩnh mã nguồn (SAST) như CodeQL vào luồng CI/CD.
+Quy trình dưới đây dành cho nhóm maintainer của một thư viện/ứng dụng OSS giả định.
+
+```
+Tiếp nhận → Đánh giá → Vá lỗi kín → Công bố
+```
+
+### Bước 1. Tiếp nhận báo cáo
+- Bật **Private Vulnerability Reporting** trên GitHub để người báo cáo gửi thông tin riêng tư.
+- Tạo file `SECURITY.md` ở thư mục gốc, nêu rõ kênh liên hệ và yêu cầu **không** báo lỗi bảo mật qua Issue công khai.
+
+### Bước 2. Xác minh và đánh giá
+- Gửi xác nhận đã nhận báo cáo trong vòng 24–48 giờ.
+- Dựng môi trường sandbox cô lập để tái hiện lỗi (Proof of Concept).
+- Xác định phạm vi phiên bản bị ảnh hưởng và chấm điểm CVSS.
+
+### Bước 3. Vá lỗi trong môi trường kín
+- Tạo **Temporary Private Fork** từ GitHub Security Advisory để viết bản vá cùng người báo cáo mà không lộ mã vá ra ngoài.
+- Viết unit test và regression test để chắc chắn bản vá sửa đúng lỗi, không làm hỏng chức năng hiện có.
+
+### Bước 4. Công bố có trách nhiệm
+- Đề nghị cấp mã CVE thông qua GitHub Advisory.
+- Thống nhất thời điểm công bố với người báo cáo, thường trong khoảng 30–90 ngày.
+- Phát hành bản mới (release tag) cùng hướng dẫn nâng cấp, đồng thời ghi nhận đóng góp của nhà nghiên cứu (Credit).
+
+---
+
+## Phần 3. Bài học bảo mật rút ra
+
+### 3.1. Các vấn đề thường gặp trong dự án OSS
+
+| Vấn đề | Mô tả |
+|--------|-------|
+| Rủi ro chuỗi cung ứng | Dùng thư viện bên thứ ba đã có lỗ hổng, hoặc bị tấn công Dependency Confusion, Typosquatting |
+| Lộ thông tin nhạy cảm | Vô tình commit chuỗi kết nối CSDL, API token, secret key vào lịch sử commit công khai |
+| Báo lỗi sai kênh | Mở issue công khai về lỗ hổng nghiêm trọng khi chưa có bản vá, tạo điều kiện cho khai thác zero-day |
+
+### 3.2. Biện pháp phòng ngừa
+
+- **Quản lý phụ thuộc:** dùng GitHub Dependabot hoặc Snyk để tự động phát hiện và cập nhật gói có lỗ hổng.
+- **Chặn lộ bí mật:** bật Secret Scanning và Push Protection để từ chối commit chứa thông tin xác thực.
+- **Phân tích mã tĩnh:** tích hợp CodeQL (SAST) vào quy trình CI/CD để rà soát lỗi trước khi merge.
+
+---
+
+## Kết luận
+
+Trường hợp CVE-2023-30861 cho thấy một lỗi nhỏ về header HTTP cũng có thể gây hậu quả lớn khi kết hợp với môi trường triển khai thực tế. Một dự án OSS cần có kênh báo cáo riêng tư, quy trình xử lý rõ ràng và các công cụ tự động hóa để giữ an toàn cho người dùng.
